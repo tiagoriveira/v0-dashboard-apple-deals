@@ -6,7 +6,7 @@ import { FilterBar } from '@/components/filter-bar'
 import { OfertasGrid } from '@/components/ofertas-grid'
 import { MonitoredDrawer } from '@/components/monitored-drawer'
 import { CopyToast } from '@/components/copy-toast'
-import { MOCK_OFERTAS } from '@/lib/mock-data'
+import { fetchOfertas } from '@/lib/api'
 import type { Categoria, Oferta } from '@/lib/types'
 
 const PRECO_MIN = 0
@@ -41,11 +41,13 @@ function montarMensagem(oferta: Oferta): string {
 }
 
 export default function Home() {
+  const [ofertas, setOfertas] = useState<Oferta[]>([])
   const [categoria, setCategoria] = useState<Categoria>('Todos')
   const [precoRange, setPrecoRange] = useState<[number, number]>([PRECO_MIN, PRECO_MAX])
   const [apenasDesconto, setApenasDesconto] = useState(false)
   const [termos, setTermos] = useState<string[]>(TERMOS_INICIAIS)
   const [isLoading, setIsLoading] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
   const [toastTrigger, setToastTrigger] = useState(0)
   const [tema, setTema] = useState<'dark' | 'light'>('dark')
 
@@ -65,18 +67,32 @@ export default function Home() {
   }, [tema])
 
   const ofertasFiltradas = useMemo(() => {
-    return MOCK_OFERTAS.filter((o) => {
+    return ofertas.filter((o) => {
       if (categoria !== 'Todos' && o.categoria !== categoria) return false
       if (o.preco < precoRange[0] || o.preco > precoRange[1]) return false
       if (apenasDesconto && !o.desconto_pct) return false
       return true
     })
-  }, [categoria, precoRange, apenasDesconto])
+  }, [ofertas, categoria, precoRange, apenasDesconto])
 
-  const handleAtualizar = useCallback(() => {
+  const handleAtualizar = useCallback(async () => {
     setIsLoading(true)
-    setTimeout(() => setIsLoading(false), 1200)
+    setErro(null)
+    try {
+      const dados = await fetchOfertas()
+      setOfertas(dados)
+    } catch (e) {
+      setErro('Não foi possível carregar as ofertas. Tente novamente.')
+      console.error('[v0] fetchOfertas error:', e)
+    } finally {
+      setIsLoading(false)
+    }
   }, [])
+
+  // Busca inicial ao montar
+  useEffect(() => {
+    handleAtualizar()
+  }, [handleAtualizar])
 
   const handleCopiar = useCallback((oferta: Oferta) => {
     const msg = montarMensagem(oferta)
@@ -116,11 +132,17 @@ export default function Home() {
         onApenasDesconto={setApenasDesconto}
       />
 
+      {/* Error banner */}
+      {erro && (
+        <div className="mx-6 mt-4 px-4 py-3 rounded-lg text-sm" style={{ background: 'rgba(255,59,48,0.12)', color: '#FF3B30', border: '1px solid rgba(255,59,48,0.25)' }}>
+          {erro}
+        </div>
+      )}
+
       {/* Results count */}
       <div className="px-6 pt-5 pb-1">
         <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
-          {ofertasFiltradas.length}{' '}
-          {ofertasFiltradas.length === 1 ? 'oferta encontrada' : 'ofertas encontradas'}
+          {isLoading ? 'Carregando ofertas...' : `${ofertasFiltradas.length} ${ofertasFiltradas.length === 1 ? 'oferta encontrada' : 'ofertas encontradas'}`}
         </p>
       </div>
 
