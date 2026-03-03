@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useCallback, useRef } from 'react'
+import { useState, useMemo, useCallback, useEffect } from 'react'
 import { Header } from '@/components/header'
 import { FilterBar } from '@/components/filter-bar'
 import { OfertasGrid } from '@/components/ofertas-grid'
@@ -46,9 +46,23 @@ export default function Home() {
   const [apenasDesconto, setApenasDesconto] = useState(false)
   const [termos, setTermos] = useState<string[]>(TERMOS_INICIAIS)
   const [isLoading, setIsLoading] = useState(false)
-  const [toastKey, setToastKey] = useState(0)
-  const toastVisible = useRef(false)
   const [toastTrigger, setToastTrigger] = useState(0)
+  const [tema, setTema] = useState<'dark' | 'light'>('dark')
+
+  // Sync theme preference from localStorage on mount
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('theme') as 'dark' | 'light' | null
+      if (saved === 'light' || saved === 'dark') setTema(saved)
+    } catch (_) { /* no localStorage in some envs */ }
+  }, [])
+
+  const handleToggleTema = useCallback(() => {
+    const next = tema === 'dark' ? 'light' : 'dark'
+    setTema(next)
+    document.documentElement.setAttribute('data-theme', next)
+    try { localStorage.setItem('theme', next) } catch (_) { /* ignore */ }
+  }, [tema])
 
   const ofertasFiltradas = useMemo(() => {
     return MOCK_OFERTAS.filter((o) => {
@@ -61,14 +75,12 @@ export default function Home() {
 
   const handleAtualizar = useCallback(() => {
     setIsLoading(true)
-    // Simulate API refresh
     setTimeout(() => setIsLoading(false), 1200)
   }, [])
 
   const handleCopiar = useCallback((oferta: Oferta) => {
     const msg = montarMensagem(oferta)
     navigator.clipboard.writeText(msg).catch(() => {
-      // Fallback for environments without clipboard API
       const el = document.createElement('textarea')
       el.value = msg
       document.body.appendChild(el)
@@ -76,7 +88,6 @@ export default function Home() {
       document.execCommand('copy')
       document.body.removeChild(el)
     })
-    // Re-trigger toast even on consecutive clicks
     setToastTrigger((k) => k + 1)
   }, [])
 
@@ -87,7 +98,12 @@ export default function Home() {
 
   return (
     <main className="min-h-screen" style={{ background: 'var(--background)' }}>
-      <Header onAtualizar={handleAtualizar} isLoading={isLoading} />
+      <Header
+        onAtualizar={handleAtualizar}
+        isLoading={isLoading}
+        tema={tema}
+        onToggleTema={handleToggleTema}
+      />
 
       <FilterBar
         categoriaAtiva={categoria}

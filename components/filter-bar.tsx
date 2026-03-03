@@ -42,7 +42,7 @@ export function FilterBar({
       className="sticky z-30 px-6 py-3 flex flex-col gap-3"
       style={{
         top: '65px',
-        backgroundColor: 'rgba(0,0,0,0.90)',
+        backgroundColor: 'var(--filter-bg)',
         backdropFilter: 'saturate(180%) blur(20px)',
         WebkitBackdropFilter: 'saturate(180%) blur(20px)',
         borderBottom: '1px solid var(--border-subtle)',

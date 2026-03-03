@@ -20,6 +20,7 @@ export function OfertaCard({ oferta, onCopiarMensagem }: OfertaCardProps) {
       style={{
         background: 'var(--surface)',
         border: '1px solid var(--border-subtle)',
+        transition: 'background-color 0.2s ease, border-color 0.2s ease, transform 0.2s ease',
       }}
       onMouseEnter={(e) => {
         e.currentTarget.style.borderColor = 'var(--border-mid)'
