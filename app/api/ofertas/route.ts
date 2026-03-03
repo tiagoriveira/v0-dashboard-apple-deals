@@ -19,54 +19,32 @@ interface MLItem {
   sold_quantity: number
   permalink: string
   seller: { nickname: string }
+  thumbnail: string
 }
 
 interface MLSearchResponse {
   results: MLItem[]
 }
 
-async function getAccessToken(): Promise<string> {
-  const clientId = process.env.ML_CLIENT_ID
-  const clientSecret = process.env.ML_CLIENT_SECRET
-
-  if (!clientId || !clientSecret) {
-    throw new Error('ML_CLIENT_ID e ML_CLIENT_SECRET não configurados')
-  }
-
-  const res = await fetch('https://api.mercadolibre.com/oauth/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      grant_type: 'client_credentials',
-      client_id: clientId,
-      client_secret: clientSecret,
-    }),
-    // cache for 5 hours (token is valid for 6h)
-    next: { revalidate: 18000 },
-  })
-
-  if (!res.ok) {
-    const err = await res.text()
-    throw new Error(`Falha ao obter token ML: ${err}`)
-  }
-
-  const data = await res.json()
-  return data.access_token as string
-}
-
+// The ML Search API is publicly accessible using the app_id (client_id) as a
+// query parameter — no OAuth user token required for read-only searches.
 async function buscarCategoria(
   termo: string,
   categoria: Oferta['categoria'],
-  token: string,
+  appId: string,
 ): Promise<Oferta[]> {
-  const url = `https://api.mercadolibre.com/sites/MLB/search?q=${encodeURIComponent(termo)}&limit=10`
+  const url =
+    `https://api.mercadolibre.com/sites/MLB/search` +
+    `?q=${encodeURIComponent(termo)}&limit=20&app_id=${appId}`
 
   const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${token}` },
     next: { revalidate: 300 }, // cache 5 min
   })
 
-  if (!res.ok) return []
+  if (!res.ok) {
+    console.error(`[v0] ML search failed for "${termo}": ${res.status} ${await res.text()}`)
+    return []
+  }
 
   const data: MLSearchResponse = await res.json()
 
@@ -89,16 +67,21 @@ async function buscarCategoria(
         vendedor: item.seller?.nickname ?? 'Vendedor',
         vendidos: item.sold_quantity ?? 0,
         link: item.permalink,
+        imagem: item.thumbnail?.replace(/\bI\b/, 'O') ?? null,
       }
     })
 }
 
 export async function GET() {
-  try {
-    const token = await getAccessToken()
+  const appId = process.env.ML_CLIENT_ID
 
+  if (!appId) {
+    return NextResponse.json({ error: 'ML_CLIENT_ID não configurado' }, { status: 500 })
+  }
+
+  try {
     const resultados = await Promise.all(
-      CATEGORIAS.map(({ termo, categoria }) => buscarCategoria(termo, categoria, token)),
+      CATEGORIAS.map(({ termo, categoria }) => buscarCategoria(termo, categoria, appId)),
     )
 
     const ofertas: Oferta[] = resultados
