@@ -11,7 +11,25 @@ import type { Categoria, Oferta } from '@/lib/types'
 const PRECO_MIN = 0
 const PRECO_MAX = 25000
 
-const TERMOS_INICIAIS = ['iPhone 15', 'MacBook Air M2', 'AirPods Pro']
+const CATEGORIAS: { termo: string; categoria: Exclude<Categoria, 'Todos'> }[] = [
+  { termo: 'apple iphone', categoria: 'iPhone' },
+  { termo: 'apple macbook', categoria: 'MacBook' },
+  { termo: 'apple ipad', categoria: 'iPad' },
+  { termo: 'apple airpods', categoria: 'AirPods' },
+  { termo: 'apple watch', categoria: 'Apple Watch' },
+  { termo: 'apple imac', categoria: 'iMac' },
+  { termo: 'apple mac mini', categoria: 'Mac Mini' },
+]
+
+interface MLItem {
+  id: string
+  title: string
+  price: number
+  original_price: number | null
+  sold_quantity: number
+  permalink: string
+  seller: { nickname: string }
+}
 
 function montarMensagem(oferta: Oferta): string {
   const linhas = [`🍎 *${oferta.titulo}*`]
@@ -29,17 +47,65 @@ function montarMensagem(oferta: Oferta): string {
   return linhas.join('\n')
 }
 
-interface DashboardProps {
-  ofertasIniciais: Oferta[]
+async function buscarCategoria(
+  termo: string,
+  categoria: Exclude<Categoria, 'Todos'>,
+  accessToken: string,
+): Promise<Oferta[]> {
+  const url = `https://api.mercadolibre.com/sites/MLB/search?q=${encodeURIComponent(termo)}&limit=10`
+
+  const res = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  })
+
+  if (!res.ok) {
+    console.warn(`[dashboard] Busca "${termo}": ${res.status}`)
+    return []
+  }
+
+  const data: { results: MLItem[] } = await res.json()
+
+  return data.results.map((item): Oferta => {
+    const precoOriginal = item.original_price ?? item.price
+    const descontoPct =
+      precoOriginal > item.price
+        ? Math.round((1 - item.price / precoOriginal) * 100)
+        : null
+    return {
+      id: item.id,
+      titulo: item.title,
+      categoria,
+      preco: item.price,
+      preco_original: precoOriginal,
+      desconto_pct: descontoPct,
+      vendedor: item.seller?.nickname ?? 'Vendedor',
+      vendidos: item.sold_quantity ?? 0,
+      link: item.permalink,
+    }
+  })
 }
 
-export function Dashboard({ ofertasIniciais }: DashboardProps) {
-  const [ofertas, setOfertas] = useState<Oferta[]>(ofertasIniciais)
+async function buscarOfertas(accessToken: string): Promise<Oferta[]> {
+  const resultados = await Promise.allSettled(
+    CATEGORIAS.map(({ termo, categoria }) =>
+      buscarCategoria(termo, categoria, accessToken),
+    ),
+  )
+
+  return resultados
+    .flatMap((r) => (r.status === 'fulfilled' ? r.value : []))
+    .sort((a, b) => (b.desconto_pct ?? 0) - (a.desconto_pct ?? 0))
+}
+
+export function Dashboard() {
+  const [ofertas, setOfertas] = useState<Oferta[]>([])
   const [categoria, setCategoria] = useState<Categoria>('Todos')
   const [precoRange, setPrecoRange] = useState<[number, number]>([PRECO_MIN, PRECO_MAX])
   const [apenasDesconto, setApenasDesconto] = useState(false)
-  const [termos, setTermos] = useState<string[]>(TERMOS_INICIAIS)
-  const [isLoading, setIsLoading] = useState(false)
+  const [termos, setTermos] = useState<string[]>(['iPhone 15', 'MacBook Air M2', 'AirPods Pro'])
+  const [isLoading, setIsLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
   const [toastTrigger, setToastTrigger] = useState(0)
   const [tema, setTema] = useState<'dark' | 'light'>('dark')
@@ -48,7 +114,7 @@ export function Dashboard({ ofertasIniciais }: DashboardProps) {
     try {
       const saved = localStorage.getItem('theme') as 'dark' | 'light' | null
       if (saved === 'light' || saved === 'dark') setTema(saved)
-    } catch (_) {}
+    } catch (_) { }
   }, [])
 
   const handleToggleTema = useCallback(() => {
@@ -57,8 +123,37 @@ export function Dashboard({ ofertasIniciais }: DashboardProps) {
     document.documentElement.setAttribute('data-theme', next)
     try {
       localStorage.setItem('theme', next)
-    } catch (_) {}
+    } catch (_) { }
   }, [tema])
+
+  const handleAtualizar = useCallback(async () => {
+    setIsLoading(true)
+    setErro(null)
+    try {
+      // 1. Pega o access_token gerado no servidor (seguro)
+      const tokenRes = await fetch('/api/token')
+      if (!tokenRes.ok) throw new Error('Erro ao obter token')
+      const { access_token } = await tokenRes.json()
+
+      // 2. Busca as ofertas no browser (IP residencial, sem bloqueio)
+      const novasOfertas = await buscarOfertas(access_token)
+      setOfertas(novasOfertas)
+
+      if (novasOfertas.length === 0) {
+        setErro('Nenhuma oferta encontrada. Tente novamente em instantes.')
+      }
+    } catch (e) {
+      setErro('Não foi possível carregar as ofertas. Tente novamente.')
+      console.error('[dashboard] erro:', e)
+    } finally {
+      setIsLoading(false)
+    }
+  }, [])
+
+  // Busca automática ao montar
+  useEffect(() => {
+    handleAtualizar()
+  }, [handleAtualizar])
 
   const ofertasFiltradas = useMemo(() => {
     return ofertas.filter((o) => {
@@ -68,25 +163,6 @@ export function Dashboard({ ofertasIniciais }: DashboardProps) {
       return true
     })
   }, [ofertas, categoria, precoRange, apenasDesconto])
-
-  const handleAtualizar = useCallback(async () => {
-    setIsLoading(true)
-    setErro(null)
-    try {
-      const res = await fetch('/api/ofertas')
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}))
-        throw new Error(body?.error ?? `Erro ${res.status}`)
-      }
-      const data: { ofertas: Oferta[] } = await res.json()
-      setOfertas(data.ofertas)
-    } catch (e) {
-      setErro('Não foi possível atualizar as ofertas. Tente novamente.')
-      console.error('[v0] handleAtualizar error:', e)
-    } finally {
-      setIsLoading(false)
-    }
-  }, [])
 
   const handleCopiar = useCallback((oferta: Oferta) => {
     const msg = montarMensagem(oferta)
