@@ -59,6 +59,8 @@ async function getAccessToken(): Promise<string> {
     )
   }
 
+  console.log('[v0] Iniciando refresh_token com client_id:', clientId?.slice(0, 6) + '...')
+
   const res = await fetch('https://api.mercadolibre.com/oauth/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -71,12 +73,14 @@ async function getAccessToken(): Promise<string> {
     cache: 'no-store',
   })
 
+  const tokenBody = await res.text()
+  console.log('[v0] Token response status:', res.status, 'body:', tokenBody)
+
   if (!res.ok) {
-    const body = await res.text()
-    throw new Error(`Falha ao renovar token ML: ${res.status} ${body}`)
+    throw new Error(`Falha ao renovar token ML: ${res.status} ${tokenBody}`)
   }
 
-  const data: MLTokenResponse = await res.json()
+  const data: MLTokenResponse = JSON.parse(tokenBody)
 
   // Expira 5 min antes para evitar race condition (ML expira em 6h = 21600s)
   cachedToken = {
@@ -100,7 +104,8 @@ async function buscarCategoria(
   })
 
   if (!res.ok) {
-    console.warn(`[ML API] Erro ao buscar "${termo}": ${res.status} ${res.statusText}`)
+    const errBody = await res.text().catch(() => '')
+    console.warn(`[v0] Erro ao buscar "${termo}": ${res.status} ${res.statusText} | body: ${errBody.slice(0, 200)}`)
     return []
   }
 
