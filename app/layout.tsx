@@ -13,7 +13,7 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="pt-BR" data-theme="dark">
+    <html lang="pt-BR" data-theme="dark" suppressHydrationWarning>
       <head>
         {/* Prevent flash of wrong theme */}
         <script
